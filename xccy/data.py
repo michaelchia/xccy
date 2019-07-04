@@ -46,7 +46,7 @@ def _read_files(data_path):
     return df_dict
  
 def _preprocess_src_df(df):    
-    df = df[df.columns[:14]].copy()
+    df = df.copy()
     df.loc[:,'Date'] = df['Date'].map(lambda x: datetime.datetime.strptime(x, '%m/%d/%Y'))
     df = df.set_index('Date')
     def rename_column(col):
@@ -59,6 +59,8 @@ def _preprocess_src_df(df):
         if label[-1].isdigit():
             label += 'Y'
         return label
+    df = df.apply(pd.to_numeric)
+    df = df.dropna()
     df = df.rename(columns=rename_column)
     df = df.sort_index()
     return df

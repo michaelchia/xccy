@@ -40,7 +40,10 @@ class Models:
         self.product_models.update(models)
         return self
         
-    def predict(self, dates=None, products=None):
+    def predict(self, dates='latest', products=None):
+        from xxcy.data import global_data
+        if dates == 'latest':
+            dates = [np.max(global_data.get_time_series())]
         pass
         
     def get_model(self, product):

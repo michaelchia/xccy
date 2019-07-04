@@ -39,13 +39,17 @@ class Models:
                   for p in products}
         self.product_models.update(models)
         return self
+    
+    def predict_latest(self):
+        from xccy.data import global_data
+        dates = [np.max(global_data.get_time_series())]
+        pred = {k: v[0] for k, v in self.predict(dates).items()}
+        return dates[0], pred
         
-    def predict(self, dates='latest', products=None):
-        from xxcy.data import global_data
-        if dates == 'latest':
-            dates = [np.max(global_data.get_time_series())]
-        pass
-        
+    def predict(self, dates=None, products=None):
+        return {k: v.predict(dates)
+                for k, v in self.product_models.items()}
+    
     def get_model(self, product):
         if isinstance(product, str):
             product = Product.from_string(product)
@@ -57,6 +61,9 @@ class Models:
         cv['series'] = ProductData(model.product).product_series()
         trades = Scorer(min_score).trades(cv['y'], cv['y_pred'])
         plot_ts(cv, trades, model.product.to_string(ccy=True))
+        
+    def plot(self, product, min_score=1):
+        pass
         
     def save(self, path):
         with open(path, 'wb') as f:
@@ -76,6 +83,7 @@ class ProductModel:
         self.labler = RegLabel(lookahead=lookahead, cost=cost)
         
     def fit(self, date_split, n_iter=500, n_jobs=-1):
+        self.date_split_ = date_split
         print('Fitting {}'.format(self.product.to_string()))
         pdata = ProductData(self.product)
         tdata = make_training_data(
@@ -140,6 +148,7 @@ class SubModel:
         return self
         
     def predict(self, X):
+        X = X.dropna()
         pred = self.model_predict(X)
         pred = self.linear_predict(pred)
         return pd.Series(pred, index=X.index)

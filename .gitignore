@@ -3,6 +3,7 @@ data/
 params.py
 *.pkl
 *.html
+scratch*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

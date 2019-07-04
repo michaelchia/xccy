@@ -46,7 +46,7 @@ def _read_files(data_path):
     return df_dict
  
 def _preprocess_src_df(df):    
-    df = df.copy()
+    df = df[df.columns[:14]].copy()
     df.loc[:,'Date'] = df['Date'].map(lambda x: datetime.datetime.strptime(x, '%m/%d/%Y'))
     df = df.set_index('Date')
     def rename_column(col):
@@ -74,7 +74,7 @@ class GlobalXccyData:
         
     def get_time_series(self):
         # assumes all src_dfs have same indices
-        return list(self._xccy_data_dict.values[0]).get_time_series()
+        return list(self._xccy_data_dict.values())[0].get_time_series()
     
     def get_series(self, product, dates=None):
         return self.local_data(product.ccy).get_series(product, dates)

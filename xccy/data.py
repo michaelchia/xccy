@@ -94,7 +94,7 @@ class LocalXccyData:
     
     def get_series(self, product, dates=None):
         src_df = self._filtered_src_df(dates)            
-        name = product.to_string()
+        name = product.to_string(ccy=False)
         if name in src_df:
             return src_df[name]
         if product.is_spot:
@@ -116,9 +116,9 @@ class LocalXccyData:
         series = pd.Series(
             get_fwd(spot1, spot2, product1.term, product2.term),
             index=spot1.index)
-        series = series.rename(product.to_string())
+        series = series.rename(product.to_string(ccy=False))
         if self.cache_derivations:
-            self._src_df[product.to_string()] = series
+            self._src_df[product.to_string(ccy=False)] = series
             return self.get_series(product, orig_dates)
         return series
         
@@ -142,7 +142,7 @@ class Product:
         self.term = term * days
         self.ccy = ccy.upper()
     
-    def to_string(self, ccy=False):
+    def to_string(self, ccy=True):
         ccy = self.ccy.upper() + '_' if ccy and self.ccy else ''
         def days_to_string(days):
             if not days:

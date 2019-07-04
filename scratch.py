@@ -31,36 +31,16 @@ importlib.reload(xccy.modelling)
 from xccy.modelling import Classifier, make_training_data, Scorer, ProductModel
 
 
-def get_quarter_pos(date):
-    q = int(date.month / 4)
-    m_start = q * 3 + 1
-    m_end = (q + 1) * 3 + 1
-    start = datetime.datetime(date.year, m_start, 1) \
-        if m_start <= 12 else datetime.datetime(date.year + 1, m_start - 12, 1)
-    end = datetime.datetime(date.year, m_end, 1) \
-        if m_end <= 12 else datetime.datetime(date.year + 1, m_end - 12, 1)
-    t_days = (end - start).days
-    days = (date - start).days
-    return days / t_days
-    
-
-def plot_df(df, label_col='label'):
-    for col in df.columns:
-        if col != label_col:
-            plt.scatter(df[col], df[label_col], c='k', label='data', s=7)
-            print(np.corrcoef(df[col], df[label_col])[0][1])
-            
-def grid_gen(search_space):
-    return ({k:v for k, v in zip(search_space.keys(), params)} 
-            for params in itertools.product(*search_space.values()))
 
 
-data.initialize_data('/Users/m/Documents/xccy2/data')
+data.initialize_data('/Users/m/Documents/xccy/data')
 jpy = data.global_data.local_data('EUR')._src_df
 p = Product.from_string('AUD_5Y5Y')
 
-
+pdata = ProductData(p)
 pmodel = ProductModel(p)
+pmodel.fit(date_split=datetime.datetime(2018,6,1), n_iter=10, n_jobs=1)
+
 
 cv = pmodel.model.cv_data_
 cv['series'] = pdata.product_series()
@@ -151,6 +131,19 @@ def plot_ts(cv, trades, title=None):
 
 
 
+
+
+
+
+def plot_df(df, label_col='label'):
+    for col in df.columns:
+        if col != label_col:
+            plt.scatter(df[col], df[label_col], c='k', label='data', s=7)
+            print(np.corrcoef(df[col], df[label_col])[0][1])
+            
+def grid_gen(search_space):
+    return ({k:v for k, v in zip(search_space.keys(), params)} 
+            for params in itertools.product(*search_space.values()))
 
 roc_auc_score(test['label'], test[0])
 

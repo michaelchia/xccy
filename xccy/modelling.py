@@ -5,6 +5,9 @@ Created on Wed Jun 12 22:18:33 2019
 
 @author: m
 """
+import os
+
+import cloudpickle
 import datetime
 import numpy as np
 import pandas as pd
@@ -20,28 +23,47 @@ from scipy.stats.distributions import randint, uniform
 from skopt import BayesSearchCV
 from skopt.space import Real, Integer, Categorical
 
-from xccy.data import ProductData
+from xccy.data import ProductData, Product
 from xccy.feature_engineering import FeatSelector, FeatEng, RegLabel
-"""
+from xccy.vis import plot_ts
+
+
 class Models:
-    
     def __init__(self):
         self.product_models = {}
     
-    def fit(self, products, date_split=datetime.datetime(2018,4,1)):
-        
+    def fit(self, products, date_split=datetime.datetime(2018,6,1), n_iter=500, n_jobs=-1):
+        products = [Product.from_string(p) if isinstance(p, str) else p
+                    for p in products]
+        models = {p.to_string(ccy=True): ProductModel(p).fit(date_split, n_iter, n_jobs)
+                  for p in products}
+        self.product_models.update(models)
+        return self
         
     def predict(self, dates=None, products=None):
-        
+        pass
         
     def get_model(self, product):
+        if isinstance(product, str):
+            product = Product.from_string(product)
+        return self.product_models[product.to_string(ccy=True)]
     
+    def plot_cv(self, product, min_score=1):
+        model = self.get_model(product)
+        cv = model.model.cv_data_
+        cv['series'] = ProductData(model.product).product_series()
+        trades = Scorer(min_score).trades(cv['y'], cv['y_pred'])
+        plot_ts(cv, trades, model.product.to_string(ccy=True))
         
     def save(self, path):
+        with open(path, 'wb') as f:
+            cloudpickle.dump(self, f)
+      
+    @classmethod
+    def load(cls, path):
+        with open(path, 'rb') as f:
+            return cloudpickle.load(f)
 
-        
-    def load(self, path):       
-"""
     
 class ProductModel:
     def __init__(self, product, lookahead=20, cost=-1):
@@ -51,6 +73,7 @@ class ProductModel:
         self.labler = RegLabel(lookahead=lookahead, cost=cost)
         
     def fit(self, date_split, n_iter=500, n_jobs=-1):
+        print('Fitting {}'.format(self.product.to_string()))
         pdata = ProductData(self.product)
         tdata = make_training_data(
                     pdata,
@@ -59,6 +82,7 @@ class ProductModel:
                     date_split=date_split,
                 )
         self.model.fit(**tdata, n_iter=n_iter, n_jobs=n_jobs)
+        return self
     
     def predict(self, dates=None):
         pdata = ProductData(self.product, dates=None)
@@ -95,7 +119,7 @@ class SubModel:
     def fit(self, X, y, cv_split, n_iter=10, n_jobs=None):
         cv_search = self.hyperparam_search(cv_split, n_iter, n_jobs=n_jobs)
         cv_search.fit(X, y) #, est__sample_weight=sample_weight)
-        self.search_ = cv_search
+        # self.search_ = cv_search
         self.model_ = self.pipeline.set_params(**cv_search.best_params_)
         train_idx = list(cv_split)[0][0]
         X_train = X.iloc[train_idx,]

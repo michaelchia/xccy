@@ -6,7 +6,7 @@ Created on Thu Jul  4 16:57:34 2019
 @author: m
 """
 # CHANGE HERE
-PRODUCT = 'JPY_1Y1Y'
+PRODUCT = 'AUD_1Y1Y'
 # END
 
 

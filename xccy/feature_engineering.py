@@ -35,14 +35,17 @@ class _FeatEng:
 class LabelEng:
     label_column = LABEL_COL
     
-    def __init__(self, lookahead, window=5, cost=-2):
+    def __init__(self, lookahead, window=5, cost=-2, direction=1):
         self.lookahead = lookahead
         self.window = window
         self.cost = cost
+        self.direction = direction
         
     def _get_lookahead_series(self, product_data):
         series = product_data.product_series()
-        labels = series.rolling(self.window, center=True).mean().shift(-self.lookahead) - series + self.cost
+        labels = series.rolling(self.window, center=True).mean().shift(-self.lookahead) - series
+        labels = labels * self.direction
+        labels = labels + self.cost
         labels.name = LABEL_COL
         return labels   
         

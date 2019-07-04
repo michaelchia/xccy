@@ -20,13 +20,18 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import RandomizedSearchCV
 import scipy
 from scipy.stats.distributions import randint, uniform
-from skopt import BayesSearchCV
-from skopt.space import Real, Integer, Categorical
 
 from xccy.data import ProductData, Product
 from xccy.feature_engineering import FeatSelector, FeatEng, RegLabel
 from xccy.vis import plot_ts
 
+CCY_DIRECTION_MAP = {
+    'AUD': -1,
+    'EUR': -1,
+    'JPY': 1,
+    'GBP': -1,
+    'NZD': -1,
+}
 
 class Models:
     def __init__(self):
@@ -80,7 +85,9 @@ class ProductModel:
         self.product = product
         self.model = Classifier()
         self.fe = FeatEng()
-        self.labler = RegLabel(lookahead=lookahead, cost=cost)
+        self.labler = RegLabel(lookahead=lookahead, 
+                               cost=cost,
+                               direction=CCY_DIRECTION_MAP.get(product.ccy, -1))
         
     def fit(self, date_split, n_iter=500, n_jobs=-1):
         self.date_split_ = date_split

@@ -7,7 +7,7 @@ Created on Wed Jun 12 22:18:33 2019
 """
 import os
 
-import cloudpickle
+import pickle
 import datetime
 import numpy as np
 import pandas as pd
@@ -57,12 +57,12 @@ class Models:
         
     def save(self, path):
         with open(path, 'wb') as f:
-            cloudpickle.dump(self, f)
+            pickle.dump(self, f)
       
     @classmethod
     def load(cls, path):
         with open(path, 'rb') as f:
-            return cloudpickle.load(f)
+            return pickle.load(f)
 
     
 class ProductModel:

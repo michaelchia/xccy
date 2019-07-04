@@ -5,6 +5,10 @@ Created on Thu Jul  4 17:03:48 2019
 
 @author: m
 """
+import os
+#print(os.path.abspath(os.path.join(__file__, os.pardir)))
+#exit
+
 import itertools
 import time
 
@@ -26,7 +30,7 @@ try:
 except:
     models = Models()
 
-models = models.fit(products, n_iter=500, n_jobs=-1)
+models = models.fit(products, n_iter=10, n_jobs=-1)
 
 models.save('models.pkl')
 models.save('archive/models_{}.pkl'.format(hex(int(time.time()))[2:]))

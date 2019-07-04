@@ -86,9 +86,6 @@ class MultiLabel(LabelEng):
 
 
 # fe
-
-
-        
 class MaDiffFeatEng:
     def __init__(self, lb=30, diff=15):
         self.lb = lb

@@ -161,6 +161,7 @@ class SubModel:
         return pd.Series(pred, index=X.index)
     
     def predict_raw(self, X):
+        X = X.dropna()
         pred = self.model_predict(X)[:,0]
         return pd.Series(pred, index=X.index)
     

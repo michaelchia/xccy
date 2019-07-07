@@ -7,12 +7,14 @@ Created on Thu Jul  4 16:57:34 2019
 """
 # CHANGE HERE
 PRODUCT = 'AUD_1Y1Y'
+MIN_SCORE = 1
 # END
 
 
-from xccy import data
 from xccy.modelling import Models
 
-data.initialize_data('data')
-models = Models.load('models.pkl')
-models.plot_cv(PRODUCT)
+import config
+
+
+models = Models.load(Cconfig.UR_MODEL_PATH)
+models.plot_cv(PRODUCT, MIN_SCORE)

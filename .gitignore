@@ -1,9 +1,10 @@
 #Custom
-data/
+data*
 params.py
 *.pkl
 *.html
 scratch*
+!*.keep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

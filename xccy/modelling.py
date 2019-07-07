@@ -21,16 +21,18 @@ from sklearn.model_selection import RandomizedSearchCV
 import scipy
 from scipy.stats.distributions import randint, uniform
 
-from xccy.data import ProductData, Product
-from xccy.feature_engineering import FeatSelector, FeatEng, RegLabel
+from xccy.data import ProductData, Product, PAY, RECEIVE
+from xccy.feature_engineering import FeatSelector, FeatEng, LabelEng, FastLabelEng
 from xccy.vis import plot_ts
 
+MIN_DATE = datetime.datetime(2015,1,1)
+
 CCY_DIRECTION_MAP = {
-    'AUD': -1,
-    'EUR': -1,
-    'JPY': 1,
-    'GBP': -1,
-    'NZD': -1,
+    'AUD': RECEIVE,
+    'EUR': RECEIVE,
+    'JPY': PAY,
+    'GBP': RECEIVE,
+    'NZD': RECEIVE,
 }
 
 class Models:
@@ -81,24 +83,19 @@ class Models:
 
     
 class ProductModel:
-    def __init__(self, product, lookahead=20, cost=-1):
+    def __init__(self, product, lookahead=20, cost=1):
         self.product = product
         self.model = Classifier()
         self.fe = FeatEng()
-        self.labler = RegLabel(lookahead=lookahead, 
+        print("using FastLabelEng")
+        self.labler = FastLabelEng(lookahead=lookahead, 
                                cost=cost,
-                               direction=CCY_DIRECTION_MAP.get(product.ccy, -1))
+                               side=CCY_DIRECTION_MAP.get(product.ccy, RECEIVE))
         
     def fit(self, date_split, n_iter=500, n_jobs=-1):
         self.date_split_ = date_split
         print('Fitting {}'.format(self.product.to_string()))
-        pdata = ProductData(self.product)
-        tdata = make_training_data(
-                    pdata,
-                    self.fe,
-                    self.labler,
-                    date_split=date_split,
-                )
+        tdata = self._training_data(date_split)
         self.model.fit(**tdata, n_iter=n_iter, n_jobs=n_jobs)
         return self
     
@@ -110,8 +107,17 @@ class ProductModel:
     def evaluate(self):
         pass
 
+    def _training_data(self, date_split):
+        pdata = ProductData(self.product, min_date=MIN_DATE)
+        return make_training_data(
+                    pdata,
+                    self.fe,
+                    self.labler,
+                    date_split=date_split,
+                )
+        
 
-def make_training_data(product_data, feat_eng, label_eng, date_split=datetime.datetime(2018,4,1)):
+def make_training_data(product_data, feat_eng, label_eng, date_split):
     features = feat_eng.get_features(product_data)
     labels = label_eng.get_labels(product_data)
     
@@ -119,6 +125,11 @@ def make_training_data(product_data, feat_eng, label_eng, date_split=datetime.da
     Xy = Xy.dropna()
     X = Xy[features.columns]
     y = Xy[labels.name]
+    
+    def make_cv_split(X, date_split):
+        ls = list(X.index < date_split)
+        return [(np.array([i for i, x in enumerate(ls) if x]),
+                 np.array([i for i, x in enumerate(ls) if not x]))]
     cv_split = make_cv_split(X, date_split)
     return dict(
         X=X,
@@ -127,18 +138,13 @@ def make_training_data(product_data, feat_eng, label_eng, date_split=datetime.da
     )
 
 
-def make_cv_split(X, date_split):
-    ls = list(X.index < date_split)
-    return [(np.array([i for i, x in enumerate(ls) if x]),
-             np.array([i for i, x in enumerate(ls) if not x]))]
-
-
 class SubModel:
     def fit(self, X, y, cv_split, n_iter=10, n_jobs=None):
         cv_search = self.hyperparam_search(cv_split, n_iter, n_jobs=n_jobs)
         cv_search.fit(X, y) #, est__sample_weight=sample_weight)
         # self.search_ = cv_search
         self.model_ = self.pipeline.set_params(**cv_search.best_params_)
+        self.features_ = self.model_.named_steps['fs'].features_
         train_idx = list(cv_split)[0][0]
         X_train = X.iloc[train_idx,]
         y_train = y[train_idx]
@@ -185,15 +191,15 @@ class SubModel:
     def hyperparam_search(self, cv, n_iter, n_jobs=None):
         # BayesSearchCV
         return RandomizedSearchCV(self.pipeline, 
-                             self.param_distributions, 
-                             n_iter=n_iter, 
-                             scoring=self.scoring, 
-                             fit_params=None, 
-                             n_jobs=n_jobs, 
-                             refit=False, 
-                             cv=cv, 
-                             verbose=0,
-                             random_state=1)
+                                  self.param_distributions, 
+                                  n_iter=n_iter, 
+                                  scoring=self.scoring, 
+                                  fit_params=None, 
+                                  n_jobs=n_jobs, 
+                                  refit=False, 
+                                  cv=cv, 
+                                  verbose=0,
+                                  random_state=1)
     
 
 class Classifier(SubModel):
@@ -223,13 +229,6 @@ class Classifier(SubModel):
                 'est__min_change': uniform(0,4),
                 'est__use_weight': [True, False],
             }
-        return {
-            'est__n_estimators': Integer(20, 200),
-            'est__min_change': Real(0, 4),
-            'est__use_weight': Categorical([True, False]),
-            #'est__min_weight': Real(1, 4),
-            #'est__learning_rate': Real(1e-5, 1, prior='log-uniform'),
-        }
 
 
 class GBC(GradientBoostingClassifier):

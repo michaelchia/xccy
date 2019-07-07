@@ -33,6 +33,37 @@ def initialize_data(data_path):
     df_dict = _read_files(data_path)
     global_data = GlobalXccyData(**df_dict)
 
+def refresh_data(data_path):
+    START_DATE = '20100101'
+    SPOTS = range(1,11)
+    CCY_MAP = {
+        'JPY': 'JY',
+        'EUR': 'EU',
+        'AUD': 'AD',
+        'NZD': 'ND',
+        'GBP': 'BP',
+    }
+    
+    import pdblp
+    con = pdblp.BCon(timeout=1000)
+    con.start()
+        
+    dfs = _read_files(data_path)
+    for ccy, ccy_sec in CCY_MAP.items():
+        old_df = dfs.get(ccy)
+        start_date = old_df.index.max() if old_df else START_DATE
+        sec = ['{}BS{} BGNL Curncy'.format(ccy_sec, i) for i in SPOTS]
+        df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
+        df.columns = list(df.columns.get_level_values(0))
+        df = df[sec]
+        if old_df:
+            df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
+        dfs[ccy] = df
+    con.stop()
+    
+    for ccy, df in dfs.items():
+        df.to_csv(os.path.join(data_path, '{}.csv'.format(ccy)))
+
 
 def _read_files(data_path):
     FILE_EXTENSION = '.csv'
@@ -44,24 +75,14 @@ def _read_files(data_path):
     def reader(filepath): return _preprocess_src_df(pd.read_csv(filepath))
     df_dict = {namer(f): reader(f) for f in files}
     return df_dict
- 
-def _preprocess_src_df(df):    
-    df = df.copy()
-    df.loc[:,'Date'] = df['Date'].map(lambda x: datetime.datetime.strptime(x, '%m/%d/%Y'))
-    df = df.set_index('Date')
-    def rename_column(col):
-        token = col.split(' ', 1)[0]
-        try:
-            i = next(i for i, c in enumerate(token) if c.isdigit())
-        except StopIteration:
-            return '3M'
-        label = token[i:].upper()
-        if label[-1].isdigit():
-            label += 'Y'
-        return label
+
+
+def _preprocess_src_df(df):
+    df.loc[:,'date'] = df['date'].map(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d'))
+    df = df.set_index('date')
     df = df.apply(pd.to_numeric)
+    df = df.interpolate('time')
     df = df.dropna()
-    df = df.rename(columns=rename_column)
     df = df.sort_index()
     return df
 
@@ -88,6 +109,17 @@ class GlobalXccyData:
 
 class LocalXccyData:
     def __init__(self, src_df, cache_derivations=True):
+        def rename_column(col):
+            token = col.split(' ', 1)[0]
+            try:
+                i = next(i for i, c in enumerate(token) if c.isdigit())
+            except StopIteration:
+                return '3M'
+            label = token[i:].upper()
+            if label[-1].isdigit():
+                label += 'Y'
+            return label
+        src_df = src_df.rename(columns=rename_column)
         self._src_df = src_df
         self.cache_derivations = cache_derivations
         
@@ -162,18 +194,18 @@ class Product:
     
     def set_fwd(self, fwd, period='D'):
         days = DPX[period]
-        self.fwd = fwd * days
-        return self
+        fwd = fwd * days
+        return Product(fwd, self.term, ccy=self.ccy, period='D')
     
     def set_term(self, term, period='D'):
         days = DPX[period]
-        self.term = term * days
-        return self
+        term = term * days
+        return Product(self.fwd, term, ccy=self.ccy, period='D')
     
     def age_product(self, delta, period='D'):
         days = DPX[period]
-        self.fwd -= delta * days
-        return self
+        fwd = self.fwd - delta * days
+        return Product(fwd, self.term, ccy=self.ccy, period='D')
     
     def copy(self):
         return Product(self.fwd, self.term,
@@ -225,36 +257,49 @@ class Product:
     
 
 class ProductData:
-    def __init__(self, product, dates=None):
+    def __init__(self, product, dates=None, min_date=None, max_date=None):
         if global_data is None:
             raise Exception('initialise data first')
         self.product = product
         self.dates = dates
-        
-    def product_series(self, dates=None):
-        return global_data.get_series(self.product, dates)
+        self.min_date = min_date
+        self.max_date = max_date
+    
+    @property
+    def series(self):
+        return global_data.get_series(self.product, self._data_dates)
     
     def closest_fwd(self, n=-1, dates=None):
         if self.product.term < DPY:
             raise NotImplementedError()
-        return self._rec_closest_fwd(self.product, int(n), dates)
+        return self._rec_closest_fwd(self.product, int(n))
     
-    def _rec_closest_fwd(self, product, n, dates):
+    def _rec_closest_fwd(self, product, n):
         if n == 0:
-            return global_data.get_series(product, dates)
+            return global_data.get_series(product, self._data_dates)
         inc = 1 if n > 0 else -1
         rnd = math.floor if n < 0 else math.ceil
         closest_fwd = (rnd(product.fwd / DPY) + inc) * DPY
         while 0 <= closest_fwd <= global_data.MAX_SPOT:
-            _product = self.product.copy().set_fwd(closest_fwd)
+            _product = self.product.set_fwd(closest_fwd)
             try:
-                series = global_data.get_series(_product, self.dates)
+                series = global_data.get_series(_product, self._data_dates)
                 if n - inc == 0:
                     return series
                 return self._rec_closest_fwd(_product, n - inc)
             except KeyError:
                 closest_fwd += inc
         return None        
+
+    @property
+    def _data_dates(self):
+        GLOBAL_MIN_DATE = datetime.datetime(2000,1,1)
+        GLOBAL_MAX_DATE = datetime.datetime(2099,1,1)
+        if self.min_date is None and self.max_date is None:
+            return None
+        min_d = self.min_date or GLOBAL_MIN_DATE
+        max_d = self.max_date or GLOBAL_MAX_DATE
+        return (min_d, max_d)
 
 
 class Trade:
@@ -280,12 +325,12 @@ class Trade:
     def product_at(self, date):
         assert date >= self.enter_date
         delta = (date - self.enter_date).days
-        return self.product.copy().age_product(delta, period='D')
+        return self.product.age_product(delta, period='D')
         
 
 def _component_spots(product):
-    product1 = product.copy().set_term(product.fwd).set_fwd(0)
-    product2 = product.copy().set_term(product.fwd + product.term).set_fwd(0)
+    product1 = product.set_term(product.fwd).set_fwd(0)
+    product2 = product.set_term(product.fwd + product.term).set_fwd(0)
     return product1, product2
 
 
@@ -295,8 +340,8 @@ def _nearest_fowards(product):
     factor = DPY
     fwd_y = product.fwd / factor
     l, u = math.floor(fwd_y), math.ceil(fwd_y)
-    product1 = product.copy().set_fwd(l * factor)
-    product2 = product.copy().set_fwd(u * factor)
+    product1 = product.set_fwd(l * factor)
+    product2 = product.set_fwd(u * factor)
     return product1, product2
 
 def filter_df(df, dates):

@@ -7,8 +7,16 @@ Created on Thu Jul  4 11:30:56 2019
 """
 
 from plotly.offline import plot
-
 import plotly.graph_objs as go
+
+def plot_eval(self, product, min_score=1):
+    model = self.get_model(product)
+    cv = model.model.cv_data_
+    cv['series'] = ProductData(model.product).product_series()
+    trades = Scorer(min_score).trades(cv['y'], cv['y_pred'])
+    plot_chart(cv, trades, model.product.to_string(ccy=True))
+
+
 
 def plot_ts(cv, trades, title=None):
     series = go.Scatter(

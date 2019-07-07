@@ -7,8 +7,10 @@ Created on Sun Jun  2 00:33:55 2019
 """
 from collections import defaultdict
 import itertools
+import math
 
 import pandas as pd
+import numpy as np
 import datetime
 import dateutil
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -16,7 +18,7 @@ from sklearn.pipeline import Pipeline
 
 
 from xccy.bounds import BollingerBand, DeviationBand, get_ma
-from xccy.data import filter_df
+from xccy.data import filter_df, Trade, RECEIVE
 
 LABEL_COL = 'label'
 
@@ -35,54 +37,39 @@ class _FeatEng:
 class LabelEng:
     label_column = LABEL_COL
     
-    def __init__(self, lookahead, window=5, cost=-2, direction=1):
+    def __init__(self, lookahead, window=5, cost=1, side=RECEIVE):
         self.lookahead = lookahead
         self.window = window
         self.cost = cost
-        self.direction = direction
+        self.side = side
         
-    def _get_lookahead_series(self, product_data):
-        series = product_data.product_series()
-        labels = series.rolling(self.window, center=True).mean().shift(-self.lookahead) - series
-        labels = labels * self.direction
-        labels = labels + self.cost
+    def _get_pl_series(self, product_data):
+        date_series = list(product_data.series.index)
+        def get_pl(i, date):
+            j = i + self.lookahead
+            if j < len(date_series):
+                return Trade(product_data.product, self.side, date).pl_at(date_series[j])
+            return None
+        labels = pd.Series((get_pl(i, date) for i, date in enumerate(date_series)), 
+                           index=date_series)
+        labels = labels.rolling(self.window, center=True).mean()
+        labels = labels - self.cost
         labels.name = LABEL_COL
-        return labels   
-        
-        
-class RegLabel(LabelEng):
-    def get_labels(self, product_data):
-        return self._get_lookahead_series(product_data)
+        return labels
     
-
-class BinaryLabel(LabelEng):
-    def __init__(self, lookahead, window=5, min_change=0, cost=-2):
-        self.lookahead = lookahead
-        self.window = window
-        self.cost = cost
-        self.min_change = min_change
-        
     def get_labels(self, product_data):
-        labels = self._get_lookahead_series(product_data) 
-        return labels.map(lambda x: int(x > self.min_change))
-
-
-class MultiLabel(LabelEng):
-    def __init__(self, lookahead, window=5, min_change=5, cost=-2):
-        self.lookahead = lookahead
-        self.window = window
-        self.cost = cost
-        self.min_change = min_change
+        return self._get_pl_series(product_data)
         
-    def get_labels(self, product_data):
-        labels = self._get_lookahead_series(product_data) 
-        def lab(x):
-            if x > abs(self.min_change):
-                return 1
-            if x < -abs(self.min_change):
-                return 0
-            return 2
-        return labels.map(lambda x: x > self.min_change)
+        
+class FastLabelEng(LabelEng):
+    def _get_pl_series(self, product_data):
+        series = product_data.series
+        labels = series.rolling(self.window, center=True).mean().shift(-self.lookahead) - series
+        sign = -1 if self.side == RECEIVE else 1
+        labels = labels * sign
+        labels = labels - self.cost
+        labels.name = LABEL_COL
+        return labels  
 
 
 # fe
@@ -92,7 +79,7 @@ class MaDiffFeatEng:
         self.diff = diff
         
     def get_features(self, product_data):
-        series = product_data.product_series()
+        series = product_data.series
         short_ma = get_ma(series, self.lb)
         long_ma = get_ma(series, self.lb + self.diff)
         ma_diff = short_ma - long_ma
@@ -115,7 +102,7 @@ class BollingerFeatEng:
         self.lb = lb
         
     def get_features(self, product_data):
-        series = product_data.product_series()
+        series = product_data.series
         df = BollingerBand(self.lb, self.lb, 1).get_bounds_df(series)
         return df[['%b']]
     
@@ -125,7 +112,7 @@ class DeviationFeatEng:
         self.lb = lb
         
     def get_features(self, product_data):
-        series = product_data.product_series()
+        series = product_data.series
         df = DeviationBand(self.lb, self.lb, 1).get_bounds_df(series)
         return df[['%b']]
 
@@ -146,7 +133,7 @@ class TimeFeatEng:
             t_days = (end - start).days
             days = (date - start).days
             return days / t_days
-        dates = list(product_data.product_series().index)
+        dates = list(product_data.series.index)
         feats = {}
         if self.quarter:
             feats['quarter'] = [int((d.month-1) / 3) + 1 for d in dates]
@@ -164,7 +151,7 @@ class CurveFeatEng:
         self.lb = lb
         
     def get_features(self, product_data):
-        series = product_data.product_series()
+        series = product_data.series
         ls = []
         for i in range(1, self.closest_n+1):
             fwd = product_data.closest_fwd(-i)
@@ -182,7 +169,7 @@ class _CurveFeatEng:
         self.closest_n = closest_n
         
     def get_features(self, product_data):
-        series = product_data.product_series()
+        series = product_data.series
         ls = []
         for i in range(1, self.closest_n+1):
             fwd = product_data.closest_fwd(-i)
@@ -256,6 +243,7 @@ class TimeFeatSelector(BaseFeatSelector, TimeFeatEng):
                         and not col.split('__')[-1] in params)]
         return X[cols]
 
+
 class FeatSelector(Pipeline):
     name = 'fs'
     
@@ -267,6 +255,17 @@ class FeatSelector(Pipeline):
         ]
         steps = [(s.prefix, s) for s in steps]
         super().__init__(steps)
+        
+    def fit(self, X, y=None, **fit_params):
+        super().fit(X, y, **fit_params)
+        output = self.transform(X)
+        self.features_ = output.columns
+        return self
+    
+    def fit_transform(self, X, y=None, **fit_params):
+        output = super().fit_transform(X, y, **fit_params)
+        self.features_ = output.columns       
+        return output
     
     @classmethod
     def param_space(cls):

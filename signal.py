@@ -5,11 +5,13 @@ Created on Thu Jul  4 16:27:56 2019
 
 @author: m
 """
-from xccy import data
+import config
+
 from xccy.modelling import Models
 
-data.initialize_data('data')
-models = Models.load('models.pkl')
+
+
+models = Models.load(config.CUR_MODEL_PATH)
 
 dt, pred = models.predict_latest()
 sorted_pred = sorted(pred.items(), key=lambda x: -x[1])

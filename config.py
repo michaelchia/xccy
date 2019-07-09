@@ -16,6 +16,8 @@ MODEL_DIR = 'models'
 CUR_MODEL_NAME = 'cur_model.pkl'
 CUR_MODEL_PATH = os.path.join(os.getcwd(), MODEL_DIR, CUR_MODEL_NAME)
 
+
+
 try:
     data.refresh_data(DATA_DIR)
 except Exception as e:

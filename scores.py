@@ -10,7 +10,6 @@ import config
 from xccy.modelling import Models
 
 
-
 models = Models.load(config.CUR_MODEL_PATH)
 
 dt, pred = models.predict_latest()

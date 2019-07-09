@@ -5,8 +5,6 @@ Created on Wed Jun 12 22:18:33 2019
 
 @author: m
 """
-import os
-
 import pickle
 import datetime
 import numpy as np
@@ -21,11 +19,22 @@ from sklearn.model_selection import RandomizedSearchCV
 import scipy
 from scipy.stats.distributions import randint, uniform
 
-from xccy.data import ProductData, Product, PAY, RECEIVE
-from xccy.feature_engineering import FeatSelector, FeatEng, LabelEng, FastLabelEng
-from xccy.vis import plot_ts
+from .data import ProductData, Product, PAY, RECEIVE
+from .feature_engineering import FeatSelector, FeatEng, LabelEng, FastLabelEng
+from .vis import plot_ts
 
-MIN_DATE = datetime.datetime(2015,1,1)
+MIN_DATA_DATE = datetime.datetime(2015,1,1)
+SPLIT_DATA = datetime.datetime(2018,6,1)
+N_ITER = 500
+
+LOOKAHEAD = 20
+COST = 1
+LOSS_PENALTY = 0.25 
+
+                            
+SCORE_THRESHOLD = 2
+TRADE_WAIT = 7
+SCORER_MIN_TRADE = 10
 
 CCY_DIRECTION_MAP = {
     'AUD': RECEIVE,
@@ -35,11 +44,18 @@ CCY_DIRECTION_MAP = {
     'NZD': RECEIVE,
 }
 
+FEAT_ENG = FeatEng
+LABEL_ENG = LabelEng  # LabelEng, FastLabelEng
+
+
+if LABEL_ENG is FastLabelEng:
+    print('WARNING: Using FastLabelEng')
+
 class Models:
     def __init__(self):
         self.product_models = {}
     
-    def fit(self, products, date_split=datetime.datetime(2018,6,1), n_iter=500, n_jobs=-1):
+    def fit(self, products, date_split=SPLIT_DATA, n_iter=N_ITER, n_jobs=-1):
         products = [Product.from_string(p) if isinstance(p, str) else p
                     for p in products]
         models = {p.to_string(ccy=True): ProductModel(p).fit(date_split, n_iter, n_jobs)
@@ -65,7 +81,7 @@ class Models:
     def plot_cv(self, product, min_score=1):
         model = self.get_model(product)
         cv = model.model.cv_data_
-        cv['series'] = ProductData(model.product).product_series()
+        cv['series'] = ProductData(model.product).series
         trades = Scorer(min_score).trades(cv['y'], cv['y_pred'])
         plot_ts(cv, trades, model.product.to_string(ccy=True))
         
@@ -83,32 +99,42 @@ class Models:
 
     
 class ProductModel:
-    def __init__(self, product, lookahead=20, cost=1):
+    def __init__(self, product, 
+                 lookahead=LOOKAHEAD, 
+                 cost=COST,
+                 loss_penalty=LOSS_PENALTY):
         self.product = product
         self.model = Classifier()
-        self.fe = FeatEng()
-        print("using FastLabelEng")
-        self.labler = FastLabelEng(lookahead=lookahead, 
-                               cost=cost,
-                               side=CCY_DIRECTION_MAP.get(product.ccy, RECEIVE))
+        self.fe = FEAT_ENG()
+        self.labler = LABEL_ENG(lookahead=lookahead, 
+                                cost=cost,
+                                loss_penalty=loss_penalty,
+                                side=CCY_DIRECTION_MAP[product.ccy])
         
-    def fit(self, date_split, n_iter=500, n_jobs=-1):
+    def fit(self, date_split, n_iter=N_ITER, n_jobs=-1):
         self.date_split_ = date_split
         print('Fitting {}'.format(self.product.to_string()))
         tdata = self._training_data(date_split)
         self.model.fit(**tdata, n_iter=n_iter, n_jobs=n_jobs)
+        print('  Eval score: {:2g}'.format(self.evaluate()['score']))
         return self
     
     def predict(self, dates=None):
-        pdata = ProductData(self.product, dates=None)
+        pdata = ProductData(self.product, dates=dates)
         features = self.fe.get_features(pdata)
         return self.model.predict(features)
     
     def evaluate(self):
-        pass
+        cv_data = self.model.cv_data_
+        return Scorer().evaluate(cv_data['y'], cv_data['y_pred'], min_trades=10)
+    
+    @property
+    def cv_trades(self):
+        cv_data = self.model.cv_data_
+        return Scorer().trades(cv_data['y'], cv_data['y_pred'], min_trades=10)        
 
     def _training_data(self, date_split):
-        pdata = ProductData(self.product, min_date=MIN_DATE)
+        pdata = ProductData(self.product, min_date=MIN_DATA_DATE)
         return make_training_data(
                     pdata,
                     self.fe,
@@ -144,11 +170,11 @@ class SubModel:
         cv_search.fit(X, y) #, est__sample_weight=sample_weight)
         # self.search_ = cv_search
         self.model_ = self.pipeline.set_params(**cv_search.best_params_)
-        self.features_ = self.model_.named_steps['fs'].features_
         train_idx = list(cv_split)[0][0]
         X_train = X.iloc[train_idx,]
         y_train = y[train_idx]
         self.model_.fit(X_train, y_train)
+        self.features_ = self.model_.named_steps['fs'].features_
         cv_idx = list(cv_split)[0][1]
         X_cv = X.iloc[cv_idx,]
         y_cv = y[cv_idx]
@@ -244,6 +270,7 @@ class GBC(GradientBoostingClassifier):
         y = y.map(lambda x: int(x >= thres))
         if self.use_weight:
             sample_weight = y.map(lambda x: max(abs(x - thres), self.min_weight)/y.max())
+            sample_weight = sample_weight * len(sample_weight) / np.sum(sample_weight)
         else:
             sample_weight = None
         return super().fit(X, y, sample_weight=sample_weight)
@@ -256,12 +283,14 @@ class IsoPchipRegression:
         ir.fit(x, y)
         xi, yi = self._ir_roots(ir)
         self.pchip_ = scipy.interpolate.PchipInterpolator(xi, yi) \
-                      if len(xi) > 1 else lambda x: x
+                      if len(xi) > 1 else None
         return self
         
     def predict(self, X):
         x = X[:,0]
-        return self.pchip_(x)
+        if self.pchip_:
+            return self.pchip_(x)
+        return x
         
     def _ir_roots(self, ir):
         prev_y = None
@@ -281,11 +310,11 @@ class IsoPchipRegression:
 
 
 class Scorer:
-    def __init__(self, threshold=1, min_days=7):
+    def __init__(self, threshold=SCORE_THRESHOLD, min_days=TRADE_WAIT):
         self.threshold = threshold
         self.min_days = min_days
         
-    def trades(self, y, pred_y, min_trades=1, return_thres=False):
+    def trades(self, y, pred_y, min_trades=0, return_thres=False):
         INC = 0.1
         def trades(min_bp):
             pl = y[pred_y > min_bp].sort_index()
@@ -298,7 +327,7 @@ class Scorer:
                     prev_date = date
             return pl[mask]
         thres = self.threshold
-        t = np.array([])
+        t = trades(thres)
         while len(t) < min_trades and thres > 0:
             t = trades(thres)
             thres -= INC
@@ -336,5 +365,5 @@ class Scorer:
         def score(y, y_prob):
             y_prob = y_prob[:,1].reshape(-1, 1)
             pred_y = IsoPchipRegression().fit(y_prob, y).predict(y_prob)
-            return np.sum(self.trades(y, pred_y, min_trades=10))
+            return np.sum(self.trades(y, pred_y, min_trades=SCORER_MIN_TRADE))
         return make_scorer(score, needs_proba=True)

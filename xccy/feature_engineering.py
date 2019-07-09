@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sun Jun  2 00:33:55 2019
-
 @author: m
 """
 from collections import defaultdict
@@ -17,8 +16,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
 
-from xccy.bounds import BollingerBand, DeviationBand, get_ma
-from xccy.data import filter_df, Trade, RECEIVE
+from .bounds import BollingerBand, DeviationBand, get_ma
+from .data import filter_df, Trade, RECEIVE
 
 LABEL_COL = 'label'
 
@@ -37,10 +36,11 @@ class _FeatEng:
 class LabelEng:
     label_column = LABEL_COL
     
-    def __init__(self, lookahead, window=5, cost=1, side=RECEIVE):
+    def __init__(self, lookahead, window=5, cost=1, loss_penalty=0, side=RECEIVE):
         self.lookahead = lookahead
         self.window = window
         self.cost = cost
+        self.loss_penalty = loss_penalty
         self.side = side
         
     def _get_pl_series(self, product_data):
@@ -54,6 +54,7 @@ class LabelEng:
                            index=date_series)
         labels = labels.rolling(self.window, center=True).mean()
         labels = labels - self.cost
+        labels = labels.map(lambda x: x * (1 + self.loss_penalty) if x < 0 else x)
         labels.name = LABEL_COL
         return labels
     

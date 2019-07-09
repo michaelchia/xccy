@@ -61,6 +61,11 @@ def refresh_data(data_path):
         dfs[ccy] = df
     con.stop()
     
+    try:
+        os.mkdir(data_path)
+    except FileExistsError:
+        pass
+
     for ccy, df in dfs.items():
         df.to_csv(os.path.join(data_path, '{}.csv'.format(ccy)))
 
@@ -269,7 +274,7 @@ class ProductData:
     def series(self):
         return global_data.get_series(self.product, self._data_dates)
     
-    def closest_fwd(self, n=-1, dates=None):
+    def closest_fwd(self, n=-1):
         if self.product.term < DPY:
             raise NotImplementedError()
         return self._rec_closest_fwd(self.product, int(n))

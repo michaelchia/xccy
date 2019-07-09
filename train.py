@@ -6,8 +6,9 @@ Created on Thu Jul  4 17:03:48 2019
 @author: m
 """
 # CHANGE HERE
-CCYS = ['AUD'] # , 'JPY', 'EUR']
-TERMS = ['1Y1Y'] # , '2Y1Y', '3Y1Y', '1Y2Y', '2Y2Y', '3Y2Y', '5Y5Y']
+CCYS = ['AUD', 'JPY', 'EUR', 'NZD', 'GBP']
+TERMS = ['1Y1Y', '2Y1Y', '3Y1Y', '1Y2Y', '2Y2Y', '5Y5Y']
+ITERATIONS = 500
 # END
 
 import config
@@ -26,12 +27,14 @@ try:
 except:
     models = Models()
 
-models = models.fit(products, n_iter=10, n_jobs=-1)
+models = models.fit(products, n_iter=ITERATIONS, n_jobs=-1)
+
+try:
+    os.mkdir(config.MODEL_DIR)
+except FileExistsError:
+    pass
 
 models.save(config.CUR_MODEL_PATH)
 # archive a copy
 archive_path = os.path.join(os.getcwd(), config.MODEL_DIR, 'models_{}.pkl'.format(hex(int(time.time()))[2:]))
 models.save(archive_path)
-
-
-

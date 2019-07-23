@@ -56,7 +56,7 @@ def refresh_data(data_path):
         df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
         df.columns = list(df.columns.get_level_values(0))
         df = df[sec]
-        if old_df:
+        if old_df is not None and len(old_df):
             df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
         dfs[ccy] = df
     con.stop()

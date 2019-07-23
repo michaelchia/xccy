@@ -21,7 +21,7 @@ from scipy.stats.distributions import randint, uniform
 
 from .data import ProductData, Product, PAY, RECEIVE
 from .feature_engineering import FeatSelector, FeatEng, LabelEng, FastLabelEng
-from .vis import plot_ts
+
 
 MIN_DATA_DATE = datetime.datetime(2015,1,1)
 SPLIT_DATA = datetime.datetime(2018,6,1)
@@ -77,13 +77,6 @@ class Models:
         if isinstance(product, str):
             product = Product.from_string(product)
         return self.product_models[product.to_string(ccy=True)]
-    
-    def plot_cv(self, product, min_score=1):
-        model = self.get_model(product)
-        cv = model.model.cv_data_
-        cv['series'] = ProductData(model.product).series
-        trades = Scorer(min_score).trades(cv['y'], cv['y_pred'])
-        plot_ts(cv, trades, model.product.to_string(ccy=True))
         
     def plot(self, product, min_score=1):
         pass

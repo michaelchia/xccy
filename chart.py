@@ -12,12 +12,13 @@ MIN_SCORE = 2
 
 
 from xccy.modelling import Models
+from xccy.vis import plot_eval
 
 import config
 
 
 models = Models.load(config.CUR_MODEL_PATH)
-models.plot_cv(PRODUCT, MIN_SCORE)
+plot_eval(models.get_model(PRODUCT), MIN_SCORE)
 
 for k, v in models.product_models.items():
     e = v.evaluate()

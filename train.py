@@ -17,7 +17,11 @@ import os
 import itertools
 import time
 
+import numpy as np
+import dateutil
+
 from xccy.modelling import Models
+from xccy.data import global_data
 
 products = ['{}_{}'.format(ccy, prod)
             for ccy, prod in itertools.product(CCYS, TERMS)]
@@ -27,7 +31,10 @@ try:
 except:
     models = Models()
 
-models = models.fit(products, n_iter=ITERATIONS, n_jobs=-1)
+# latest_date minus one year
+date_split = np.max(global_data.get_time_series()) - dateutil.relativedelta.relativedelta(years=1)
+
+models = models.fit(products, date_split=date_split, n_iter=ITERATIONS, n_jobs=-1)
 
 try:
     os.mkdir(config.MODEL_DIR)

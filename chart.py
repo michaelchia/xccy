@@ -6,8 +6,8 @@ Created on Thu Jul  4 16:57:34 2019
 @author: m
 """
 # CHANGE HERE
-PRODUCT = 'GBP_2Y2Y'
-MIN_SCORE = 2
+PRODUCT = 'EUR_4Y1Y'
+MIN_SCORE = 1
 # END
 
 
@@ -19,7 +19,3 @@ import config
 
 models = Models.load(config.CUR_MODEL_PATH)
 plot_eval(models.get_model(PRODUCT), MIN_SCORE)
-
-for k, v in models.product_models.items():
-    e = v.evaluate()
-    print('{}: {:g}, {}'.format(k, e['score'], e['n']))

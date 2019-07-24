@@ -5,6 +5,8 @@ Created on Thu Jul  4 11:30:56 2019
 
 @author: m
 """
+from pprint import pprint
+
 import datetime
 from plotly.offline import plot
 import plotly.graph_objs as go
@@ -29,6 +31,9 @@ def plot_eval(model, min_score=1, start_date=None):
           trade_dates,
           pred,
           closest_fwd)
+    
+    y_labels = model.labler.get_labels(pdata).dropna()
+    pprint(Scorer(min_score).evaluate(y_labels, pred[y_labels.index]))
 
 
 def _plot(title,

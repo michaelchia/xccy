@@ -6,10 +6,8 @@ Created on Sun Jun  2 00:33:55 2019
 """
 from collections import defaultdict
 import itertools
-import math
 
 import pandas as pd
-import numpy as np
 import datetime
 import dateutil
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -53,6 +51,7 @@ class LabelEng:
         labels = pd.Series((get_pl(i, date) for i, date in enumerate(date_series)), 
                            index=date_series)
         labels = labels.rolling(self.window, center=True).mean()
+        
         labels = labels - self.cost
         labels = labels.map(lambda x: x * (1 + self.loss_penalty) if x < 0 else x)
         labels.name = LABEL_COL
@@ -61,14 +60,16 @@ class LabelEng:
     def get_labels(self, product_data):
         return self._get_pl_series(product_data)
         
-        
+
 class FastLabelEng(LabelEng):
     def _get_pl_series(self, product_data):
         series = product_data.series
-        labels = series.rolling(self.window, center=True).mean().shift(-self.lookahead) - series
+        labels = series.rolling(self.window, center=True, win_type='gaussian').mean(std=self.window / 2).shift(-self.lookahead) - series
         sign = -1 if self.side == RECEIVE else 1
         labels = labels * sign
+        
         labels = labels - self.cost
+        labels = labels.map(lambda x: x * (1 + self.loss_penalty) if x < 0 else x)
         labels.name = LABEL_COL
         return labels  
 

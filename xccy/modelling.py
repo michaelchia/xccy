@@ -27,7 +27,8 @@ MIN_DATA_DATE = datetime.datetime(2015,1,1)
 SPLIT_DATA = datetime.datetime(2018,6,1)
 N_ITER = 500
 
-LOOKAHEAD = 20
+LOOKAHEAD = 15
+WINDOW = 12
 COST = 1
 LOSS_PENALTY = 0.25 
 
@@ -45,11 +46,8 @@ CCY_DIRECTION_MAP = {
 }
 
 FEAT_ENG = FeatEng
-LABEL_ENG = LabelEng  # LabelEng, FastLabelEng
+LABEL_ENG = FastLabelEng  # LabelEng, FastLabelEng
 
-
-if LABEL_ENG is FastLabelEng:
-    print('WARNING: Using FastLabelEng')
 
 class Models:
     def __init__(self):
@@ -94,12 +92,14 @@ class Models:
 class ProductModel:
     def __init__(self, product, 
                  lookahead=LOOKAHEAD, 
+                 window=WINDOW,
                  cost=COST,
                  loss_penalty=LOSS_PENALTY):
         self.product = product
         self.model = Classifier()
         self.fe = FEAT_ENG()
         self.labler = LABEL_ENG(lookahead=lookahead, 
+                                window=window,
                                 cost=cost,
                                 loss_penalty=loss_penalty,
                                 side=CCY_DIRECTION_MAP[product.ccy])
@@ -109,17 +109,18 @@ class ProductModel:
         print('Fitting {}'.format(self.product.to_string()))
         tdata = self._training_data(date_split)
         self.model.fit(**tdata, n_iter=n_iter, n_jobs=n_jobs)
-        print('  Eval score: {:2g}'.format(self.evaluate()['score']))
+        # print evaluation
+        cv_data = self.model.cv_data_
+        score = Scorer().evaluate(cv_data['y'], 
+                                  cv_data['y_pred'], 
+                                  min_trades=10)['score']
+        print('  Eval score: {:2g}'.format(score))
         return self
     
     def predict(self, dates=None):
         pdata = ProductData(self.product, dates=dates)
         features = self.fe.get_features(pdata)
         return self.model.predict(features)
-    
-    def evaluate(self):
-        cv_data = self.model.cv_data_
-        return Scorer().evaluate(cv_data['y'], cv_data['y_pred'], min_trades=10)
     
     @property
     def cv_trades(self):

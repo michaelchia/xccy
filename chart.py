@@ -6,7 +6,7 @@ Created on Thu Jul  4 16:57:34 2019
 @author: m
 """
 # CHANGE HERE
-PRODUCT = 'EUR_4Y1Y'
+PRODUCT = 'EUR_2Y1Y'
 MIN_SCORE = 1
 # END
 

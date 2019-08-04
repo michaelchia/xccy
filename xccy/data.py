@@ -34,7 +34,7 @@ def initialize_data(data_path):
     global_data = GlobalXccyData(**df_dict)
 
 def refresh_data(data_path):
-    START_DATE = '20100101'
+    START_DATE = '20140101'
     SPOTS = range(1,11)
     CCY_MAP = {
         'JPY': 'JY',
@@ -45,18 +45,19 @@ def refresh_data(data_path):
     }
     
     import pdblp
-    con = pdblp.BCon(timeout=1000)
+    con = pdblp.BCon(timeout=5000)
     con.start()
         
     dfs = _read_files(data_path)
     for ccy, ccy_sec in CCY_MAP.items():
         old_df = dfs.get(ccy)
-        start_date = old_df.index.max() if old_df else START_DATE
+        has_old = old_df is not None and len(old_df)
+        start_date = old_df.index.max().strftime('%Y%m%d') if has_old else START_DATE
         sec = ['{}BS{} BGNL Curncy'.format(ccy_sec, i) for i in SPOTS]
         df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
         df.columns = list(df.columns.get_level_values(0))
         df = df[sec]
-        if old_df is not None and len(old_df):
+        if has_old:
             df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
         dfs[ccy] = df
     con.stop()

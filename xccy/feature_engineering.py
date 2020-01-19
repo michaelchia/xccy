@@ -17,6 +17,7 @@ from sklearn.pipeline import Pipeline
 from .bounds import BollingerBand, DeviationBand, get_ma
 from .data import filter_df, Trade, RECEIVE
 
+
 LABEL_COL = 'label'
 
 class _FeatEng:

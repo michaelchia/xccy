@@ -4,6 +4,10 @@
 Created on Mon Jan 13 20:25:49 2020
 
 @author: m
+
+TODO:
+    select ma period
+    better chart
 """
 import datetime
 import itertools
@@ -25,8 +29,8 @@ from xccy.data import PAY, RECEIVE
 CCYS = ['AUD', 'JPY', 'EUR', 'NZD', 'GBP']
 ALL_TERMS = [f'{term}Y{fwd}Y' for term, fwd in itertools.product(range(1,6),range(1,6))]
 DEFAULT_TERMS = ['1Y1Y', '2Y1Y', '3Y1Y', '1Y2Y', '2Y2Y', '5Y5Y']
-STD_LB = [30, 60, 90, 120]
-STD_X = [1, 1.5, 2, 2.5, 3]
+STD_LB = [14, 30, 60, 90, 120, 150]
+PERCENTILES = [50, 75, 90, 95, 100]
 
 xccy.data.initialize_data("data")
 
@@ -39,13 +43,22 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 app.layout = html.Div(children=[
         
     # html.H1(children='Hello Dash'),
-    # html.Div(children='''Dash: A web application framework for Python.'''),
-             
-    dcc.DatePickerSingle(
-        id='date-picker',
-        date=max(xccy.data.global_data.get_time_series()),
-        display_format='DD/MM/YYYY'
-    ),
+    html.Div(children=[
+        'Current: ',
+        dcc.DatePickerSingle(
+            id='date-picker',
+            date=max(xccy.data.global_data.get_time_series()),
+            display_format='DD/MM/YYYY'
+            ),
+    ]),
+    html.Div(children=[
+        'Starting: ',
+        dcc.DatePickerSingle(
+            id='min-date-picker',
+            date=MIN_DATA_DATE,
+            display_format='DD/MM/YYYY'
+            ),
+    ]),               
     
     dcc.RadioItems(
         id='side',
@@ -74,6 +87,16 @@ app.layout = html.Div(children=[
         multi=True,
         value=DEFAULT_TERMS
     ),
+            
+    html.Div(children=[
+        'MA period (days): ',
+        dcc.Input(
+            id='ma_period',
+            placeholder='Moving average lookback period',
+            type='number',
+            value=60
+        ),
+    ]), 
     
     dash_table.DataTable(
         id='scores',
@@ -115,15 +138,21 @@ app.layout = html.Div(children=[
 
 @app.callback(
     Output('scores', 'data'),
-    [Input('date-picker', 'date'), 
+    [Input('date-picker', 'date'),
+     Input('min-date-picker', 'date'),
      Input('side', 'value'), 
      Input('ccy', 'value'), 
-     Input('terms', 'value')])
-def set_score_table(date, side, ccy, terms):
-    if date and side and ccy and terms:
+     Input('terms', 'value'),
+     Input('ma_period', 'value')])
+def set_score_table(date, min_date, side, ccy, terms, ma_period):
+    try:
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
+        min_date = datetime.datetime.strptime(min_date, '%Y-%m-%d')
+    except TypeError:
+        date = None
+    if date and side and ccy and terms and ma_period:
         data = [get_scores(Product.from_string(f'{ccy}_{t}'), 
-                           side, date) for t in terms]
+                           side, date, min_date, ma_period) for t in terms]
         return data
     return []
 
@@ -134,8 +163,11 @@ def set_score_table(date, side, ccy, terms):
      Input('date-picker', 'date'),
      Input('side', 'value')])
 def set_position_table(rows, selected, date, side):
-    if selected and date and side:
+    try:
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
+    except TypeError:
+        date = None
+    if selected and selected[0] < len(rows) and date and side:
         row = rows[selected[0]]
         product = Product.from_string(row['product'])
         return get_position_data(product, side, date)
@@ -145,13 +177,18 @@ def set_position_table(rows, selected, date, side):
     Output('graph-container', 'children'),
     [Input('scores', 'derived_virtual_data'),
      Input('scores', 'selected_rows'),
-     Input('date-picker', 'date')])
-def update_graph(rows, selected, date):
-    if selected:
+     Input('date-picker', 'date'),
+     Input('min-date-picker', 'date')])
+def update_graph(rows, selected, date, min_date):
+    try:
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
+        min_date = datetime.datetime.strptime(min_date, '%Y-%m-%d')
+    except TypeError:
+        date = None
+    if selected and selected[0] < len(rows) and date:
         row = rows[selected[0]]
         product = Product.from_string(row['product'])
-        return [get_series_graph(product, date), 
+        return [get_series_graph(product, date, min_date), 
                 get_fwd_graph(product, date)]
 
 def sync_columns(data):
@@ -169,8 +206,7 @@ app.callback(Output('position', 'columns'),[Input('position', 'data')])(sync_col
 def _get_current(product, date):
     return ProductData(product).series.loc[date]
 
-def _get_ma_scores(product, side, date):
-    lb = 60
+def _get_ma_scores(product, side, date, lb):
     series = ProductData(product, 
                          max_date=date,
                          min_date=date - datetime.timedelta(days=90)).series
@@ -183,15 +219,15 @@ def _get_ma_scores(product, side, date):
     ma_score = np.interp(sign*sd, xp, yp)
     return {
         'ma_score': ma_score,
-        'stddev': sd,
+        'z': sd,
         str(lb)+'ma': band['ma'],
-        '1_stddev': band['ma'] - band['lower']
+        'stddev': band['ma'] - band['lower']
     }
     
-def _get_season_scores(product, side, date):
+def _get_season_scores(product, side, date, min_date):
     series = ProductData(product, 
                          max_date=date,
-                         min_date=MIN_DATA_DATE).series
+                         min_date=min_date).series
     season_df = pd.DataFrame({"series": series, 
                              "month": series.index.map(lambda x: x.month),
                              "year": series.index.map(lambda x: x.year)}, index=series.index)
@@ -207,11 +243,11 @@ def _get_season_scores(product, side, date):
     m_season_df = m_season_df.set_index("month")
     return m_season_df.loc[date.month][["season_score", "avg_mth_change"]].to_dict()
 
-def get_scores(product, side, date):
+def get_scores(product, side, date, min_date, ma_period):
     output = {'product': product.to_string()}
     output['bp'] = _get_current(product, date)
-    output.update(_get_ma_scores(product, side, date))
-    output.update(_get_season_scores(product, side, date))
+    output.update(_get_ma_scores(product, side, date, ma_period))
+    output.update(_get_season_scores(product, side, date, min_date))
     for k, v in output.items():
         if isinstance(v, float):
             output[k] = round(v, 3)
@@ -219,22 +255,27 @@ def get_scores(product, side, date):
 
 def get_position_data(product, side, date):
     data = []
+    sign = -1 if side == PAY else 1
     for lb in STD_LB:
-        row = {'lookback days': lb}
+        row = {'lookback period (days)': lb}
         series = ProductData(product, 
                              max_date=date,
                              min_date=date - datetime.timedelta(days=lb)).series
         std = series.std()
-        for x in STD_X:
-            row[f'{x}_stdev'] = round(std*x, 3)
+        row['stdev'] = round(std, 3)
+        for p in PERCENTILES:
+            losses = (series.shift(1) - series) * sign
+            losses = np.array(losses[losses > 0])
+            label = 'max' if p == 100 else f'{p}%'
+            row[label] = round(np.quantile(losses, p/100), 3) * sign if len(losses) else 0
         data.append(row)
     return data
 
-def get_series_graph(product, date):
+def get_series_graph(product, date, min_date):
     series = ProductData(
                  product, 
                  #max_date=date,
-                 #min_date=date - datetime.timedelta(days=lb)
+                 min_date=min_date,
              ).series
     data = [{'x': list(series.index),
              'y': list(series),

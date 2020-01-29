@@ -19,13 +19,13 @@ import pandas as pd
 
 
 def get_delta(series, lb):
-    return series - series.shift(lb)
+    return series - series.shift(lb, freq=pd.DateOffset(days=1))
 
 def get_ma(series, lb):
-    return series.rolling(window=lb, center=False).mean()
+    return series.rolling(window='{}D'.format(lb), center=False, closed='both').mean()
 
 def get_std(series, lb):
-    return get_delta(series, 1).rolling(window=lb, center=False).std()
+    return get_delta(series, 1).rolling(window='{}D'.format(lb), center=False, closed='both').std()
 
 
 class MaBand:
@@ -55,7 +55,7 @@ class MaBand:
         return dict(row)
     
     def get_ma(self, series):
-        return series.rolling(window=self.ma_lb, center=False).mean()
+        return series.rolling(window='{}D'.format(self.ma_lb), center=False, closed='both').mean()
     
     def set_params(self, ma_lb, sd_lb, x):
         self.ma_lb = int(ma_lb)
@@ -82,8 +82,8 @@ class MinMaxBand(MaBand):
         
     def get_bounds_df(self, series):
         ma = self.get_ma(series)
-        upper = series.shift(1).rolling(window=self.lb, center=False).quantile(max(self.perc, 0.5))
-        lower = series.shift(1).rolling(window=self.lb, center=False).quantile(min(1 - self.perc, 0.5))
+        upper = series.shift(1).rolling(window='{}D'.format(self.lb), center=False, closed='both').quantile(max(self.perc, 0.5))
+        lower = series.shift(1).rolling(window='{}D'.format(self.lb), center=False, closed='both').quantile(min(1 - self.perc, 0.5))
         upper = (upper - ma) * self.x + ma
         lower = (lower - ma) * self.x + ma
         b = (series - lower) / (upper - lower)
@@ -114,11 +114,11 @@ class MinMaxBand(MaBand):
 class BollingerBand(MaBand):
     name = 'Bollinger Bands'
     def get_sd(self, series):
-        return series.rolling(window=self.sd_lb, center=False).std()
+        return series.rolling(window='{}D'.format(self.sd_lb), center=False, closed='both').std()
 
 class DeviationBand(MaBand):    
     name = 'Deviation Bands'
     def get_sd(self, series):
         ma = self.get_ma(series)
-        sq_dev = (series - ma).map(lambda x: x**2).rolling(window=self.sd_lb, center=False).mean()
+        sq_dev = (series - ma).map(lambda x: x**2).rolling(window='{}D'.format(self.sd_lb), center=False, closed='both').mean()
         return sq_dev.map(math.sqrt)

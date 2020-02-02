@@ -6,6 +6,7 @@ Created on Sat Jan  4 21:55:43 2020
 @author: m
 """
 import datetime
+import dateutil
 from plotly.offline import plot
 import plotly.graph_objs as go
 from scipy import optimize
@@ -39,7 +40,35 @@ threshold = 0.5
 #ma_season_split = 0.75
 
 
-pdata = ProductData(product, min_date=date, max_date=date)
+w=7
+lf_days=30
+date=datetime.datetime(2019,2,2)
+pdata = ProductData(product, min_date=MIN_DATA_DATE)
+series = pdata.series
+series = series.rolling(7, center=True).mean().dropna()
+
+def hist_diff_series(date, lf_days):
+    dates = []
+    values = []
+    date = date - dateutil.relativedelta.relativedelta(years=1)
+    lf_date = date + dateutil.relativedelta.relativedelta(days=lf_days)
+    while min(series.index) < date and lf_date < max(series.index):
+        ref = series.iloc[series.index.get_loc(date, method='nearest')]
+        lf = series.iloc[series.index.get_loc(lf_date, method='nearest')]
+        value = lf - ref
+        if value:
+            values.append(value)
+            dates.append(date)
+        date = date - dateutil.relativedelta.relativedelta(years=1)
+        lf_date = date + dateutil.relativedelta.relativedelta(days=lf_days)
+    return pd.Series(values, index=dates)
+
+
+
+
+pdata = ProductData(product, min_date=date - datetime.timedelta(days=60), max_date=date)
+pdata.series.shift(30, pd.DateOffset(days=1))
+pdata.series.rolling("60D", center=False, closed='both').std()
 pdata.closest_fwd(1)
     
 season_series = ProductData(product, min_date=MIN_DATA_DATE).series

@@ -6,11 +6,19 @@ Created on Mon Jan 13 20:25:49 2020
 @author: m
 
 TODO:
-    select ma period
-    better chart
+    -spreads
+    -plot the ma band, curr date, historic curr dates
+    -highlight current term for forward curve
+    -last refresh
 """
+import os
+os.chdir(os.path.abspath(os.path.join(__file__, os.pardir)))
+import time
 import datetime
+import threading
+import dateutil
 import itertools
+
 import numpy as np
 import pandas as pd
 import dash
@@ -26,14 +34,38 @@ from xccy.bounds import BollingerBand
 from xccy.data import PAY, RECEIVE
 
 
+SIDES = [PAY, RECEIVE]
 CCYS = ['AUD', 'JPY', 'EUR', 'NZD', 'GBP']
 ALL_TERMS = [f'{term}Y{fwd}Y' for term, fwd in itertools.product(range(1,6),range(1,6))]
 DEFAULT_TERMS = ['1Y1Y', '2Y1Y', '3Y1Y', '1Y2Y', '2Y2Y', '5Y5Y']
 STD_LB = [14, 30, 60, 90, 120, 150]
 PERCENTILES = [50, 75, 90, 95, 100]
+SEASON_WINDOW = 7
+DEFAULT_MA_PERIOD = 60
+DEFAULT_SEASON_LF = 30
+SORT_BY = 'ma_score'
 
-xccy.data.initialize_data("data")
+# data
+DATA_DIR = 'data'
+REFRSH_INTERVAL = 2 * 60 * 60
+def refesh_data():
+    try:
+        xccy.data.refresh_data(DATA_DIR)
+    except Exception as e:
+        print('WARNING: Data not refreshed \n'
+              '{}: {}'.format(type(e).__name__, e))
+    xccy.data.initialize_data(DATA_DIR)
+refesh_data()
 
+def refresh_thread():
+    while True:
+        refesh_data()
+        time.sleep(REFRSH_INTERVAL)
+
+thread = threading.Thread(target=refresh_thread, args=())
+thread.daemon = True   # Daemonize thread
+thread.start() 
+        
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
@@ -58,25 +90,24 @@ app.layout = html.Div(children=[
             date=MIN_DATA_DATE,
             display_format='DD/MM/YYYY'
             ),
-    ]),               
-    
-    dcc.RadioItems(
-        id='side',
+    ]),
+
+    dcc.Dropdown(
+        id='sides',
         options=[
-            {'label': 'Pay', 'value': PAY},
-            {'label': 'Receive', 'value': RECEIVE},
+            {'label': x, 'value': x} for x in SIDES
         ],
-        value=None,
-        labelStyle={'display': 'inline-block'}
+        multi=True,
+        value=SIDES
     ),
 
-    dcc.RadioItems(
-        id='ccy',
+    dcc.Dropdown(
+        id='ccys',
         options=[
             {'label': x, 'value': x} for x in CCYS
         ],
-        value=None,
-        labelStyle={'display': 'inline-block'}
+        multi=True,
+        value=CCYS
     ),
     
     dcc.Dropdown(
@@ -94,9 +125,19 @@ app.layout = html.Div(children=[
             id='ma_period',
             placeholder='Moving average lookback period',
             type='number',
-            value=60
+            value=DEFAULT_MA_PERIOD
         ),
     ]), 
+    
+    html.Div(children=[
+        'Seasonality lookahead (days): ',
+        dcc.Input(
+            id='season_lf',
+            placeholder='Seasonality lookahead period',
+            type='number',
+            value=DEFAULT_SEASON_LF
+        ),
+    ]),
     
     dash_table.DataTable(
         id='scores',
@@ -108,8 +149,12 @@ app.layout = html.Div(children=[
             'selector': '.dash-cell div.dash-cell-value',
             'rule': 'display: inline; white-space: inherit; overflow: inherit; text-overflow: inherit;'
         }],
-        #sorting=True,
-        #sorting_type='multi',
+        sorting=True,
+        sorting_type='multi',
+        pagination_settings={
+            'current_page': 0,
+            'page_size': 10,
+        },
         # filtering=True,
         data=[],
         columns=[],
@@ -140,19 +185,22 @@ app.layout = html.Div(children=[
     Output('scores', 'data'),
     [Input('date-picker', 'date'),
      Input('min-date-picker', 'date'),
-     Input('side', 'value'), 
-     Input('ccy', 'value'), 
+     Input('sides', 'value'), 
+     Input('ccys', 'value'), 
      Input('terms', 'value'),
-     Input('ma_period', 'value')])
-def set_score_table(date, min_date, side, ccy, terms, ma_period):
+     Input('ma_period', 'value'),
+     Input('season_lf', 'value')])
+def set_score_table(date, min_date, sides, ccys, terms, ma_period, season_lf):
     try:
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
         min_date = datetime.datetime.strptime(min_date, '%Y-%m-%d')
     except TypeError:
         date = None
-    if date and side and ccy and terms and ma_period:
+    if date and ccys and terms and ma_period and season_lf:
         data = [get_scores(Product.from_string(f'{ccy}_{t}'), 
-                           side, date, min_date, ma_period) for t in terms]
+                           side, date, min_date, ma_period, season_lf) 
+                for ccy, side, t in itertools.product(ccys, sides, terms)]
+        data = sorted(data, key=lambda x: x[SORT_BY], reverse=True)
         return data
     return []
 
@@ -160,16 +208,16 @@ def set_score_table(date, min_date, side, ccy, terms, ma_period):
     Output('position', 'data'),
     [Input('scores', 'derived_virtual_data'),
      Input('scores', 'selected_rows'),
-     Input('date-picker', 'date'),
-     Input('side', 'value')])
-def set_position_table(rows, selected, date, side):
+     Input('date-picker', 'date')])
+def set_position_table(rows, selected, date):
     try:
         date = datetime.datetime.strptime(date, '%Y-%m-%d')
     except TypeError:
         date = None
-    if selected and selected[0] < len(rows) and date and side:
+    if selected and selected[0] < len(rows) and date:
         row = rows[selected[0]]
-        product = Product.from_string(row['product'])
+        product = Product.from_string(row['ccy'] + '_' + row['product'])
+        side = row['side']
         return get_position_data(product, side, date)
     return []
 
@@ -187,7 +235,7 @@ def update_graph(rows, selected, date, min_date):
         date = None
     if selected and selected[0] < len(rows) and date:
         row = rows[selected[0]]
-        product = Product.from_string(row['product'])
+        product = Product.from_string(row['ccy'] + '_' + row['product'])
         return [get_series_graph(product, date, min_date), 
                 get_fwd_graph(product, date)]
 
@@ -214,7 +262,7 @@ def _get_ma_scores(product, side, date, lb):
     sd = (band['%b'] - 0.5) * 2
     # ma_score
     xp = np.array([0, 1.0, 1.50, 2])
-    yp = np.array([0, 0.0, 0.25, 1])
+    yp = np.array([0, 0.25, 0.75, 1])
     sign = 1 if side == RECEIVE else -1
     ma_score = np.interp(sign*sd, xp, yp)
     return {
@@ -223,31 +271,47 @@ def _get_ma_scores(product, side, date, lb):
         str(lb)+'ma': band['ma'],
         'stddev': band['ma'] - band['lower']
     }
-    
-def _get_season_scores(product, side, date, min_date):
+
+
+def _get_season_scores(product, side, date, min_date, lf_days):
     series = ProductData(product, 
                          max_date=date,
                          min_date=min_date).series
-    season_df = pd.DataFrame({"series": series, 
-                             "month": series.index.map(lambda x: x.month),
-                             "year": series.index.map(lambda x: x.year)}, index=series.index)
-    m_season_df = season_df.groupby(["year", "month"]).mean().reset_index()
-    m_season_df["avg_mth_change"] = m_season_df["series"].shift(-1) -  m_season_df["series"]
-    m_season_df = m_season_df.groupby("month").mean()[["avg_mth_change"]].reset_index()
-    def score(x):
-        sign = 1 if side == PAY else -1
-        x = sign*x
-        max_ = max((sign*m_season_df["avg_mth_change"]).max(), 1e-5)
-        return max(x / max_, 0)
-    m_season_df["season_score"] = m_season_df["avg_mth_change"].map(score)
-    m_season_df = m_season_df.set_index("month")
-    return m_season_df.loc[date.month][["season_score", "avg_mth_change"]].to_dict()
+    series = series.rolling(SEASON_WINDOW, center=True).mean().dropna()
 
-def get_scores(product, side, date, min_date, ma_period):
-    output = {'product': product.to_string()}
+    def hist_diff_series(date, lf_days):
+        dates = []
+        values = []
+        date = date - dateutil.relativedelta.relativedelta(years=1)
+        lf_date = date + dateutil.relativedelta.relativedelta(days=lf_days)
+        while min(series.index) < date and lf_date < max(series.index):
+            ref = series.iloc[series.index.get_loc(date, method='nearest')]
+            lf = series.iloc[series.index.get_loc(lf_date, method='nearest')]
+            value = lf - ref
+            if value:
+                values.append(value)
+                dates.append(date)
+            date = date - dateutil.relativedelta.relativedelta(years=1)
+            lf_date = date + dateutil.relativedelta.relativedelta(days=lf_days)
+        return pd.Series(values, index=dates)
+    
+    diffs = hist_diff_series(date, lf_days)
+    mean_diff = diffs.mean()
+    median_diff = diffs.median()
+    score = mean_diff if side == PAY else -mean_diff
+    return {'season_score': score, 
+            f'mean_{lf_days}day_change': mean_diff,
+            f'median_{lf_days}day_change': median_diff}
+    
+
+def get_scores(product, side, date, min_date, ma_period, season_lf):
+    output = {
+        'side': side,
+        'ccy': product.ccy.upper(),
+        'product': product.to_string(ccy=False)}
     output['bp'] = _get_current(product, date)
     output.update(_get_ma_scores(product, side, date, ma_period))
-    output.update(_get_season_scores(product, side, date, min_date))
+    output.update(_get_season_scores(product, side, date, min_date, season_lf))
     for k, v in output.items():
         if isinstance(v, float):
             output[k] = round(v, 3)
@@ -255,7 +319,6 @@ def get_scores(product, side, date, min_date, ma_period):
 
 def get_position_data(product, side, date):
     data = []
-    sign = -1 if side == PAY else 1
     for lb in STD_LB:
         row = {'lookback period (days)': lb}
         series = ProductData(product, 
@@ -263,11 +326,14 @@ def get_position_data(product, side, date):
                              min_date=date - datetime.timedelta(days=lb)).series
         std = series.std()
         row['stdev'] = round(std, 3)
-        for p in PERCENTILES:
-            losses = (series.shift(1) - series) * sign
-            losses = np.array(losses[losses > 0])
-            label = 'max' if p == 100 else f'{p}%'
-            row[label] = round(np.quantile(losses, p/100), 3) * sign if len(losses) else 0
+        diffs = (series.shift(1) - series).dropna()
+        downs = np.array(diffs[diffs < 0])
+        ups = np.array(diffs[diffs > 0])
+        for array, sign in [(ups, '+'), (downs, '-')]:
+            row['%'+sign] = round((len(array) / len(diffs)) * 100, 1)
+            for p in PERCENTILES:
+                label = {50: 'median', 100: 'max'}.get(p, f'{p}%') + sign
+                row[label] = round(np.quantile(array, p/100), 3) if len(array) else 0
         data.append(row)
     return data
 

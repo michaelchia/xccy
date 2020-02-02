@@ -10,6 +10,7 @@ TODO:
     -plot the ma band, curr date, historic curr dates
     -highlight current term for forward curve
     -last refresh
+    +position lookfoward col
 """
 import os
 os.chdir(os.path.abspath(os.path.join(__file__, os.pardir)))

@@ -8,6 +8,7 @@ Created on Mon May 20 01:07:30 2019
 import math
 import glob
 import os
+import itertools
 
 import datetime
 import pandas as pd
@@ -57,6 +58,7 @@ def refresh_data(data_path):
         df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
         df.columns = list(df.columns.get_level_values(0))
         df = df[sec]
+        df = df.rename(columns=_rename_column)
         if has_old:
             df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
         dfs[ccy] = df
@@ -66,9 +68,20 @@ def refresh_data(data_path):
         os.mkdir(data_path)
     except FileExistsError:
         pass
-
+    
     for ccy, df in dfs.items():
-        df.to_csv(os.path.join(data_path, '{}.csv'.format(ccy)))
+        df.to_csv(os.path.join(data_path, '{}_Y.csv'.format(ccy)))
+
+
+def _rename_column(col):
+    if col == 'date':
+        return col
+    token = col.split(' ', 1)[0]
+    i = next(i for i, c in enumerate(token) if c.isdigit())
+    label = token[i:].upper()
+    if label[-1].isdigit():
+        label += 'Y'
+    return label
 
 
 def _read_files(data_path):
@@ -80,14 +93,21 @@ def _read_files(data_path):
     def namer(filepath): return os.path.basename(filepath.split(FILE_EXTENSION, 1)[0])
     def reader(filepath): return _preprocess_src_df(pd.read_csv(filepath))
     df_dict = {namer(f): reader(f) for f in files}
+    df_dict = {
+        ccy: pd.concat([df_dict[key] for key in group], axis=1, join='outer')
+        for ccy, group in itertools.groupby(sorted(df_dict.keys()), 
+                                            key=lambda x: x.split("_")[0])}
     return df_dict
 
 
 def _preprocess_src_df(df):
+    # set index to date
     df.loc[:,'date'] = df['date'].map(lambda x: datetime.datetime.strptime(x, '%Y-%m-%d'))
     df = df.set_index('date')
+    # set columns to numeric
     df = df.apply(pd.to_numeric)
-    df = df.interpolate('time')
+    # interpolate data to fill NA
+    df = df.interpolate('time', limit_area='inside')
     df = df.dropna()
     df = df.sort_index()
     return df
@@ -115,17 +135,6 @@ class GlobalXccyData:
 
 class LocalXccyData:
     def __init__(self, src_df, cache_derivations=True):
-        def rename_column(col):
-            token = col.split(' ', 1)[0]
-            try:
-                i = next(i for i, c in enumerate(token) if c.isdigit())
-            except StopIteration:
-                return '3M'
-            label = token[i:].upper()
-            if label[-1].isdigit():
-                label += 'Y'
-            return label
-        src_df = src_df.rename(columns=rename_column)
         self._src_df = src_df
         self.cache_derivations = cache_derivations
         
@@ -283,9 +292,10 @@ class ProductData:
     def _rec_closest_fwd(self, product, n):
         if n == 0:
             return global_data.get_series(product, self._data_dates)
+        period_days = DPM if product.term < DPY else DPY
         inc = 1 if n > 0 else -1
         rnd = math.floor if n < 0 else math.ceil
-        closest_fwd = (rnd(product.fwd / DPY) + inc) * DPY
+        closest_fwd = (rnd(product.fwd / period_days) + inc) * period_days
         while 0 <= closest_fwd <= global_data.MAX_SPOT:
             _product = self.product.set_fwd(closest_fwd)
             try:

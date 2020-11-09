@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ç#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Mon Jan 13 20:25:49 2020
@@ -237,8 +237,13 @@ def update_graph(rows, selected, date, min_date):
     if selected and selected[0] < len(rows) and date:
         row = rows[selected[0]]
         product = Product.from_string(row['ccy'] + '_' + row['product'])
-        return [get_series_graph(product, date, min_date), 
-                get_fwd_graph(product, date)]
+        series_graph = get_series_graph(product, date, min_date)
+        try:
+            fwd_graph = get_fwd_graph(product, date)
+        except NotImplementedError:
+            fwd_graph = None
+        return [series_graph, fwd_graph] if fwd_graph else [series_graph]
+
 
 def sync_columns(data):
     def to_col(key, value):

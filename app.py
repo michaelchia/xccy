@@ -1,4 +1,4 @@
-ç#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Mon Jan 13 20:25:49 2020
@@ -17,9 +17,9 @@ os.chdir(os.path.abspath(os.path.join(__file__, os.pardir)))
 import time
 import datetime
 import threading
-import dateutil
 import itertools
 
+import dateutil
 import numpy as np
 import pandas as pd
 import dash
@@ -193,8 +193,8 @@ app.layout = html.Div(children=[
      Input('season_lf', 'value')])
 def set_score_table(date, min_date, sides, ccys, terms, ma_period, season_lf):
     try:
-        date = datetime.datetime.strptime(date, '%Y-%m-%d')
-        min_date = datetime.datetime.strptime(min_date, '%Y-%m-%d')
+        date = datetime.datetime.strptime(date[:10], '%Y-%m-%d')
+        min_date = datetime.datetime.strptime(min_date[:10], '%Y-%m-%d')
     except TypeError:
         date = None
     if date and ccys and terms and ma_period and season_lf:
@@ -212,7 +212,7 @@ def set_score_table(date, min_date, sides, ccys, terms, ma_period, season_lf):
      Input('date-picker', 'date')])
 def set_position_table(rows, selected, date):
     try:
-        date = datetime.datetime.strptime(date, '%Y-%m-%d')
+        date = datetime.datetime.strptime(date[:10], '%Y-%m-%d')
     except TypeError:
         date = None
     if selected and selected[0] < len(rows) and date:
@@ -230,8 +230,8 @@ def set_position_table(rows, selected, date):
      Input('min-date-picker', 'date')])
 def update_graph(rows, selected, date, min_date):
     try:
-        date = datetime.datetime.strptime(date, '%Y-%m-%d')
-        min_date = datetime.datetime.strptime(min_date, '%Y-%m-%d')
+        date = datetime.datetime.strptime(date[:10], '%Y-%m-%d')
+        min_date = datetime.datetime.strptime(min_date[:10], '%Y-%m-%d')
     except TypeError:
         date = None
     if selected and selected[0] < len(rows) and date:

@@ -36,7 +36,7 @@ from xccy.data import PAY, RECEIVE
 
 
 SIDES = [PAY, RECEIVE]
-CCYS = ['AUD', 'JPY', 'EUR', 'NZD', 'GBP']
+CCYS = ['XCCYAUD', 'XCCYJPY', 'XCCYEUR', 'XCCYNZD', 'XCCYGBP']
 ALL_TERMS = [f'{term}Y{fwd}Y' for term, fwd in itertools.product(range(1,6),range(1,6))]
 DEFAULT_TERMS = ['1Y1Y', '2Y1Y', '3Y1Y', '1Y2Y', '2Y2Y', '5Y5Y']
 STD_LB = [14, 30, 60, 90, 120, 150]

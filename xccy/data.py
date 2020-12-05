@@ -43,25 +43,32 @@ def refresh_data(data_path):
         'AUD': 'AD',
         'NZD': 'ND',
         'GBP': 'BP',
+        'HKD': 'HD',
+        'SGD': 'SD',
+        'USD': 'US',
     }
-    
+    TYPE_MAP = {
+        'XCCY': 'BS',
+        'IRS': 'SW',
+    }
     import pdblp
     con = pdblp.BCon(timeout=5000)
     con.start()
         
     dfs = _read_files(data_path)
-    for ccy, ccy_sec in CCY_MAP.items():
-        old_df = dfs.get(ccy)
-        has_old = old_df is not None and len(old_df)
-        start_date = old_df.index.max().strftime('%Y%m%d') if has_old else START_DATE
-        sec = ['{}BS{} BGNL Curncy'.format(ccy_sec, i) for i in SPOTS]
-        df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
-        df.columns = list(df.columns.get_level_values(0))
-        df = df[sec]
-        df = df.rename(columns=_rename_column)
-        if has_old:
-            df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
-        dfs[ccy] = df
+    for type_, type_sec in TYPE_MAP.items():
+        for ccy, ccy_sec in CCY_MAP.items():
+            old_df = dfs.get(ccy)
+            has_old = old_df is not None and len(old_df)
+            start_date = old_df.index.max().strftime('%Y%m%d') if has_old else START_DATE
+            sec = [f'{ccy_sec}{type_sec}{i} BGNL Curncy' for i in SPOTS]
+            df = con.bdh(sec, 'PX_LAST', start_date=start_date, end_date='20990101')
+            df.columns = list(df.columns.get_level_values(0))
+            df = df[sec]
+            df = df.rename(columns=_rename_column)
+            if has_old:
+                df = pd.concat([old_df[old_df.index.map(lambda x: x not in df.index)], df])
+            dfs[f"{type_}{ccy}"] = df
     con.stop()
     
     try:
@@ -124,12 +131,12 @@ class GlobalXccyData:
         return list(self._xccy_data_dict.values())[0].get_time_series()
     
     def get_series(self, product, dates=None):
-        return self.local_data(product.ccy).get_series(product, dates)
+        return self._local_data(product.ccy).get_series(product, dates)
     
     def get_bp(self, product, date):
-        return self.local_data(product.ccy).get_bp(product, date)
+        return self._local_data(product.ccy).get_bp(product, date)
     
-    def local_data(self, ccy):
+    def _local_data(self, ccy):
         return self._xccy_data_dict[ccy]
 
 
@@ -190,9 +197,9 @@ class Product:
         self.fwd = fwd * days
         self.term = term * days
         self.ccy = ccy.upper()
-    
+
     def to_string(self, ccy=True):
-        ccy = self.ccy.upper() + '_' if ccy and self.ccy else ''
+        ccy = self.ccy + '_' if ccy and self.ccy else ''
         def days_to_string(days):
             if not days:
                 return ''
